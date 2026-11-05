@@ -1,319 +1,766 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-TW">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>网页版塔防教学 - 从零开始</title>
-
-<!-- 
-=========================================
-【教学第一步：写 CSS 样式（装修）】
-下面这一大段 <style> 是干嘛的？
-它是用来给我们的游戏“化妆”的。如果不写，所有的东西都会干巴巴地挤在一起。
-我们在这里规定了：
-1. 背景要是深色的。
-2. 敌人的长宽、圆角、颜色。
-3. 防御塔的外观。
-=========================================
--->
-<style>
-    body {
-        background-color: #1e1e24; /* 网页背景颜色，深灰色，保护眼睛 */
-        color: white;              /* 文字颜色，白色 */
-        font-family: sans-serif;   /* 字体 */
-        display: flex;             /* 用弹性盒子让内容居中 */
-        flex-direction: column;    /* 从上往下排列 */
-        align-items: center;
-        margin: 0;
-        padding: 20px;
-    }
-
-    /* 顶部信息栏：显示金币和血量 */
-    #ui {
-        display: flex;
-        gap: 30px;
-        font-size: 20px;
-        margin-bottom: 10px;
-        font-weight: bold;
-    }
-    .gold-text { color: #ffd700; } /* 金币的黄色 */
-    .hp-text { color: #ff3b30; }   /* 血量的红色 */
-
-    /* 游戏主画布：怪物和塔都在这里面跑 */
-    #game-board {
-        position: relative;        /* 相对定位，方便里面的怪物用绝对定位按坐标摆放 */
-        width: 800px;
-        height: 400px;
-        background-color: #2a2a35; /* 画布颜色 */
-        border: 2px solid #555;
-        border-radius: 8px;
-        overflow: hidden;          /* 超出画布的部分隐藏 */
-        cursor: crosshair;         /* 鼠标放上去变成十字准星，暗示你可以点击建塔 */
-    }
-
-    /* 怪物走的路线（一条灰色的路） */
-    .path {
-        position: absolute;
-        top: 180px;                /* 距离顶部 180 像素 */
-        left: 0;
-        width: 100%;
-        height: 40px;
-        background-color: #444;
-        border-top: 2px solid #333;
-        border-bottom: 2px solid #333;
-    }
-
-    /* 怪物的外观（红色小圆球） */
-    .enemy {
-        position: absolute;        /* 绝对定位，靠 left 和 top 决定位置 */
-        width: 30px;
-        height: 30px;
-        background-color: red;
-        border-radius: 50%;        /* 变成圆形 */
-        text-align: center;
-        line-height: 30px;
-        font-size: 14px;
-        transform: translateY(5px);/* 微调位置，让它站在路中间 */
-    }
-
-    /* 防御塔的外观（蓝色方块） */
-    .tower {
-        position: absolute;
-        width: 40px;
-        height: 40px;
-        background-color: #00c6ff;
-        border-radius: 8px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-size: 20px;
-        border: 2px solid #fff;
-    }
-
-    /* 子弹的外观（黄色小圆点） */
-    .bullet {
-        position: absolute;
-        width: 8px;
-        height: 8px;
-        background-color: yellow;
-        border-radius: 50%;
-    }
-</style>
-</head>
-<body>
-
-<!-- 
-=========================================
-【教学第二步：写 HTML 骨架（搭模型）】
-下面这里是我们网页上能看见的实物。
-1. 顶部的文字（金币、血量）。
-2. 那个灰黑色的框（游戏画布），里面画了一条路。
-=========================================
--->
-<div id="ui">
-    <div>金币: <span class="gold-text" id="gold-text">100</span></div>
-    <div>基地血量: <span class="hp-text" id="hp-text">100</span></div>
-</div>
-
-<div id="game-board">
-    <div class="path"></div>
-</div>
-
-<p style="color:#aaa; margin-top:15px;">👉 用手指或鼠标点击上半部分空地，就可以建塔打怪啦！</p >
-
-<!-- 
-=========================================
-【教学第三步：写 JavaScript 逻辑（注入灵魂）】
-前面两步只是画了好看的图，现在我们要用代码让游戏动起来。
-包括：怎么建塔？怪物怎么走路？塔怎么开枪？子弹怎么追怪？
-=========================================
--->
-<script>
-    // ---------------- 1. 定义全局变量 ----------------
-    // 把游戏里的数据存起来，随时可以拿来用
-    let gold = 100;      // 初始金币
-    let baseHp = 100;    // 初始基地血量
-    let towers = [];     // 这是一个“数组”，用来装游戏里所有的塔
-    let enemies = [];    // 用来装所有的怪物
-    let bullets = [];    // 用来装所有的子弹
-
-    // 获取网页上显示文字的元素，方便后面更新数字
-    const board = document.getElementById('game-board');
-    const goldText = document.getElementById('gold-text');
-    const hpText = document.getElementById('hp-text');
-
-    // 自定义一个函数，用来刷新顶部的数字显示
-    function updateUI() {
-        goldText.innerText = gold;
-        hpText.innerText = baseHp;
-    }
-
-    // ---------------- 2. 建塔功能 ----------------
-    // 监听玩家在画布上的点击动作
-    board.addEventListener('click', (e) => {
-        // 获取玩家点击的坐标位置（相对于画布内部）
-        const rect = board.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        const clickY = e.clientY - rect.top;
-
-        // 判断：如果有 50 块钱，并且没有建在怪物走的路上（避开 y=150到250 的区域）
-        if (gold >= 50 && (clickY < 150 || clickY > 250)) {
-            gold -= 50; // 扣除金币
-            updateUI(); // 刷新顶部数字
-
-            // 创建一个网页元素代表塔（就是一个 div）
-            const towerEl = document.createElement('div');
-            towerEl.className = 'tower'; // 套用 CSS 里的外观
-            towerEl.style.left = (clickX - 20) + 'px'; // 让塔的中心在点击位置
-            towerEl.style.top = (clickY - 20) + 'px';
-            towerEl.innerText = '🏹'; // 塔的图标
-            board.appendChild(towerEl); // 把塔加到画布上
-
-            // 把这个塔的“属性”存到数组里，方便后面电脑自动算伤害
-            towers.push({
-                x: clickX,
-                y: clickY,
-                range: 120,      // 射程（半径120像素内的怪都能打）
-                attackSpeed: 30, // 攻击间隔（大约半秒开一枪）
-                cooldown: 0      // 当前还剩几秒开下一枪
-            });
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>馬桶人防線大戰 - Skibidi Tower Defense</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts Inter & Noto Sans TC -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', 'Inter', sans-serif;
+            background: linear-gradient(135deg, #090d16 0%, #111827 50%, #2b102b 100%);
+            color: #f8fafc;
+            min-height: 100vh;
+            user-select: none;
         }
-    });
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        canvas {
+            background: #0b0f19;
+            box-shadow: 0 0 35px rgba(236, 72, 153, 0.2);
+            border-radius: 1rem;
+            cursor: crosshair;
+        }
+        .tower-btn {
+            transition: all 0.2s ease;
+        }
+        .tower-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(236, 72, 153, 0.3);
+        }
+        .tower-btn.active {
+            border-color: #ec4899;
+            background: rgba(236, 72, 153, 0.2);
+        }
+    </style>
+</head>
+<body class="p-4 md:p-6 flex flex-col items-center justify-center">
 
-    // ---------------- 3. 怪物生成功能 ----------------
-    // 这个函数专门用来生成一只怪物
-    function spawnEnemy() {
-        // 怪物的初始数据
-        const enemyData = {
-            x: -30,       // 出生在屏幕最左侧外面
-            y: 195,       // 固定在路上的高度
-            hp: 50,       // 血量 50
-            speed: 2,     // 移动速度（每次移动 2 像素）
-            element: null // 一会用来装真实的网页元素
+    <!-- Main Container -->
+    <div class="w-full max-w-6xl mx-auto flex flex-col gap-6">
+
+        <!-- Header -->
+        <header class="glass-panel rounded-2xl p-4 md:p-5 flex flex-col md:flex-row items-center justify-between gap-4 shadow-2xl">
+            <div class="flex items-center gap-3">
+                <span class="text-3xl md:text-4xl">🚽</span>
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-black bg-gradient-to-r from-pink-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent">馬桶人防線大戰</h1>
+                    <p class="text-xs text-slate-400">Skibidi Tower Defense - 部署監控人與音響人守護陣地</p>
+                </div>
+            </div>
+            
+            <!-- Game Stats Bar -->
+            <div class="flex flex-wrap items-center justify-center gap-3 md:gap-5 bg-slate-900/80 px-5 py-2.5 rounded-xl border border-slate-700/80">
+                <div class="text-center">
+                    <span class="block text-[10px] text-slate-400 uppercase tracking-wider">金幣</span>
+                    <span id="gold-display" class="text-lg font-black text-amber-400">$500</span>
+                </div>
+                <div class="h-7 w-px bg-slate-700"></div>
+                <div class="text-center">
+                    <span class="block text-[10px] text-slate-400 uppercase tracking-wider">基地生命</span>
+                    <span id="lives-display" class="text-lg font-black text-rose-400">❤️ 20</span>
+                </div>
+                <div class="h-7 w-px bg-slate-700"></div>
+                <div class="text-center">
+                    <span class="block text-[10px] text-slate-400 uppercase tracking-wider">分數</span>
+                    <span id="score-display" class="text-lg font-black text-emerald-400">0</span>
+                </div>
+                <div class="h-7 w-px bg-slate-700"></div>
+                <div class="text-center">
+                    <span class="block text-[10px] text-slate-400 uppercase tracking-wider">當前波次</span>
+                    <span id="wave-display" class="text-lg font-black text-cyan-400">Wave 1 / 10</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Layout: Canvas + Control Sidebar -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+            
+            <!-- Canvas Area (2 Cols on lg) -->
+            <div class="lg:col-span-2 glass-panel rounded-3xl p-4 md:p-6 flex flex-col items-center shadow-2xl relative">
+                <canvas id="gameCanvas" width="800" height="600" class="w-full max-w-[800px] h-auto aspect-[4/3]"></canvas>
+            </div>
+
+            <!-- Right Sidebar: Wave Control, Shop & Inspector -->
+            <div class="flex flex-col gap-6">
+                
+                <!-- Wave Control Panel (Unobstructed in Sidebar) -->
+                <div class="glass-panel rounded-3xl p-5 shadow-xl flex flex-col gap-3 border border-pink-500/30">
+                    <h3 class="font-bold text-md text-slate-200 flex items-center gap-2">🚀 波次與戰鬥控制</h3>
+                    <div id="wave-status-text" class="text-xs text-slate-300 bg-slate-900/60 p-3 rounded-xl border border-slate-800 leading-relaxed">
+                        Skibidi 馬桶大軍即將襲來，請佈署防禦塔！
+                    </div>
+                    <button id="start-wave-btn" onclick="startNextWave()" class="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-bold text-sm shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2">
+                        <span>⚡</span> 開始 / 立即跳過至下一波
+                    </button>
+                </div>
+
+                <!-- Tower Shop -->
+                <div class="glass-panel rounded-3xl p-5 shadow-xl flex flex-col gap-4">
+                    <h3 class="font-bold text-md text-slate-200 flex items-center gap-2">📷 陣營防禦塔商店</h3>
+                    <p class="text-xs text-slate-400">選擇塔型後點擊地圖空地進行部署。</p>
+                    
+                    <div class="grid grid-cols-1 gap-3">
+                        <!-- Camera Man -->
+                        <button onclick="selectTowerType('cameraman')" id="shop-btn-cameraman" class="tower-btn active w-full text-left p-3 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full bg-cyan-500/20 border-2 border-cyan-400 flex items-center justify-center text-cyan-300 font-bold text-sm">監</div>
+                                <div>
+                                    <div class="text-sm font-bold text-slate-200">監控人 (Camera Man)</div>
+                                    <div class="text-xs text-slate-400">標準光束 | 傷害均衡</div>
+                                </div>
+                            </div>
+                            <span class="text-xs font-bold text-amber-400 bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-700">$100</span>
+                        </button>
+
+                        <!-- Speaker Man -->
+                        <button onclick="selectTowerType('speakerman')" id="shop-btn-speakerman" class="tower-btn w-full text-left p-3 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full bg-pink-500/20 border-2 border-pink-400 flex items-center justify-center text-pink-300 font-bold text-sm">音</div>
+                                <div>
+                                    <div class="text-sm font-bold text-slate-200">音響人 (Speaker Man)</div>
+                                    <div class="text-xs text-slate-400">超高射速 | 音波連擊</div>
+                                </div>
+                            </div>
+                            <span class="text-xs font-bold text-amber-400 bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-700">$150</span>
+                        </button>
+
+                        <!-- TV Man -->
+                        <button onclick="selectTowerType('tvman')" id="shop-btn-tvman" class="tower-btn w-full text-left p-3 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full bg-purple-500/20 border-2 border-purple-400 flex items-center justify-center text-purple-300 font-bold text-sm">電</div>
+                                <div>
+                                    <div class="text-sm font-bold text-slate-200">電視人 (TV Man)</div>
+                                    <div class="text-xs text-slate-400">催眠減速 | 範圍控制</div>
+                                </div>
+                            </div>
+                            <span class="text-xs font-bold text-amber-400 bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-700">$130</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tower Inspector / Upgrade Panel -->
+                <div class="glass-panel rounded-3xl p-5 shadow-xl flex flex-col gap-3">
+                    <h3 class="font-bold text-md text-slate-200 flex items-center gap-2">🔍 塔防屬性管理</h3>
+                    <div id="inspector-content" class="text-xs text-slate-400 leading-relaxed bg-slate-900/60 p-4 rounded-2xl border border-slate-800 flex flex-col gap-2">
+                        <p class="text-slate-400 italic">尚未選取任何防禦塔。點擊地圖上的防禦塔查看升級與售賣。</p>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- Game Over / Victory Modal -->
+    <div id="modal-overlay" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden items-center justify-center p-4 z-50">
+        <div id="modal-content" class="glass-panel rounded-3xl p-8 max-w-md w-full text-center flex flex-col items-center gap-4 shadow-2xl border border-pink-500/30">
+            <div id="modal-icon" class="text-6xl mb-2">🏆</div>
+            <h2 id="modal-title" class="text-2xl font-black text-white">勝利！馬桶人被擊退</h2>
+            <p id="modal-desc" class="text-slate-300 text-sm leading-relaxed">你成功抵禦了所有馬桶人軍團的入侵，保衛了聯盟總部！</p>
+            <div id="modal-stats" class="w-full bg-slate-900/60 p-4 rounded-xl text-left text-xs text-slate-300 flex flex-col gap-1.5 my-2">
+                <div>最終得分：<span id="end-score" class="font-bold text-emerald-400">0</span></div>
+                <div>剩餘生命：<span id="end-lives" class="font-bold text-rose-400">20</span></div>
+            </div>
+            <button onclick="restartGame()" class="w-full py-3.5 rounded-xl bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-bold shadow-lg transition transform active:scale-95">
+                重新開始防線
+            </button>
+        </div>
+    </div>
+
+    <!-- JavaScript Game Engine -->
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Game Configuration & State
+        let gold = 500;
+        let lives = 20;
+        let score = 0;
+        let currentWave = 1;
+        let maxWaves = 10;
+        let waveActive = false;
+        let selectedTowerType = 'cameraman'; // 'cameraman', 'speakerman', 'tvman'
+        let selectedTower = null;
+
+        // Path waypoints across 800x600 canvas
+        const pathWaypoints = [
+            { x: 0, y: 100 },
+            { x: 150, y: 100 },
+            { x: 150, y: 460 },
+            { x: 350, y: 460 },
+            { x: 350, y: 140 },
+            { x: 580, y: 140 },
+            { x: 580, y: 480 },
+            { x: 800, y: 480 }
+        ];
+
+        // Tower Definitions
+        const towerDefs = {
+            cameraman: { name: "監控人", cost: 100, range: 130, damage: 25, fireRate: 35, color: "#06b6d4" },
+            speakerman: { name: "音響人", cost: 150, range: 95, damage: 12, fireRate: 12, color: "#ec4899" },
+            tvman:      { name: "電視人", cost: 130, range: 110, damage: 8, fireRate: 50, color: "#a855f7" }
         };
 
-        // 创建怪物网页元素
-        const enemyEl = document.createElement('div');
-        enemyEl.className = 'enemy';
-        enemyEl.innerText = '👾'; // 怪物图标
-        board.appendChild(enemyEl); // 加到画布上
-        enemyData.element = enemyEl; // 把元素存到数据里
+        let towers = [];
+        let enemies = [];
+        let bullets = [];
+        let particles = [];
+        let spawnQueue = [];
+        let spawnTimer = 0;
 
-        // 把这只怪物装进全局怪物数组
-        enemies.push(enemyData);
-    }
+        // Generate Skibidi Toilet Wave enemies
+        function generateWaveEnemies(wave) {
+            let list = [];
+            let count = 6 + wave * 3;
+            let hpMultiplier = 1 + (wave - 1) * 0.4;
 
-    // 设置定时器：每隔 1.5 秒（1500毫秒），就自动执行一次 spawnEnemy，生成一只怪
-    setInterval(spawnEnemy, 1500);
+            for (let i = 0; i < count; i++) {
+                let type = 'normal';
+                if (wave >= 3 && i % 4 === 0) type = 'fast';
+                if (wave >= 5 && i % 5 === 0) type = 'boss';
 
-    // ---------------- 4. 游戏主循环（最核心的动力） ----------------
-    // 这个函数会一秒钟执行 60 次。它负责让画面里的人动起来。
-    function gameLoop() {
-
-        // 【动作A：让怪物走起来】
-        // 倒序遍历怪物数组（为什么不正序？因为删除怪物时不会出错）
-        for (let i = enemies.length - 1; i >= 0; i--) {
-            let e = enemies[i];
-            e.x += e.speed; // 横坐标增加（往右走）
-            e.element.style.left = e.x + 'px'; // 把最新的坐标给网页元素
-
-            // 如果怪物走出了屏幕右边（到达终点）
-            if (e.x > 800) {
-                baseHp -= 10; // 基地扣血
-                updateUI();   // 刷新数字
-                e.element.remove(); // 从画面上删掉这只怪
-                enemies.splice(i, 1); // 从数组里删除这只怪
+                list.push({
+                    type: type,
+                    hp: type === 'boss' ? 200 * hpMultiplier : type === 'fast' ? 45 * hpMultiplier : 80 * hpMultiplier,
+                    maxHp: type === 'boss' ? 200 * hpMultiplier : type === 'fast' ? 45 * hpMultiplier : 80 * hpMultiplier,
+                    speed: type === 'fast' ? 2.6 : type === 'boss' ? 1.1 : 1.6,
+                    reward: type === 'boss' ? 30 : type === 'fast' ? 15 : 10,
+                    scoreVal: type === 'boss' ? 150 : type === 'fast' ? 70 : 50,
+                    radius: type === 'boss' ? 16 : 11,
+                    color: type === 'boss' ? '#f59e0b' : type === 'fast' ? '#38bdf8' : '#cbd5e1'
+                });
             }
+            return list;
         }
 
-        // 【动作B：让塔自动寻找敌人开火】
-        for (let t of towers) { // 遍历所有的塔
-            if (t.cooldown > 0) {
-                t.cooldown--; // 如果在冷却，就减少冷却时间，不能开火
-                continue;
+        // Start Next Wave or Skip Delay
+        function startNextWave() {
+            if (waveActive) {
+                // If wave is active, clicking this button can instantly spawn remaining enemies (Skip wait)
+                if (spawnQueue.length > 0) {
+                    while(spawnQueue.length > 0) {
+                        enemies.push(new Enemy(spawnQueue.shift()));
+                    }
+                    showFloatingText("已立即加速召喚剩餘敵軍！", canvas.width / 2, canvas.height / 2, "#38bdf8");
+                }
+                return;
             }
+            if (currentWave > maxWaves) return;
 
-            // 遍历所有怪物，看看哪个在射程内
-            for (let e of enemies) {
-                // 用勾股定理算距离：两点之间的距离
-                const dist = Math.hypot(e.x - t.x, e.y - t.y);
-                
-                if (dist <= t.range) { // 如果怪物进入了射程
-                    createBullet(t.x, t.y, e); // 发射一颗子弹，目标锁定这只怪
-                    t.cooldown = t.attackSpeed; // 射完进入冷却
-                    break; // 一次只能打一只，打完就跳出这个循环
+            waveActive = true;
+            spawnQueue = generateWaveEnemies(currentWave);
+            document.getElementById('wave-status-text').innerText = `Wave ${currentWave}：Skibidi 馬桶大軍猛烈進攻中！`;
+        }
+
+        // Select Tower Type
+        function selectTowerType(type) {
+            selectedTowerType = type;
+            selectedTower = null;
+            document.querySelectorAll('.tower-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`shop-btn-${type}`).classList.add('active');
+            updateInspector();
+        }
+
+        // Check if point is too close to path
+        function isNearPath(x, y) {
+            const minDistSq = 38 * 38;
+            for (let i = 0; i < pathWaypoints.length - 1; i++) {
+                let p1 = pathWaypoints[i];
+                let p2 = pathWaypoints[i+1];
+                let distSq = distToSegmentSquared({x, y}, p1, p2);
+                if (distSq < minDistSq) return true;
+            }
+            return false;
+        }
+
+        function distToSegmentSquared(p, p1, p2) {
+            let l2 = (p2.x - p1.x)*(p2.x - p1.x) + (p2.y - p1.y)*(p2.y - p1.y);
+            if (l2 === 0) return (p.x - p1.x)*(p.x - p1.x) + (p.y - p1.y)*(p.y - p1.y);
+            let t = ((p.x - p1.x)*(p2.x - p1.x) + (p.y - p1.y)*(p2.y - p1.y)) / l2;
+            t = Math.max(0, Math.min(1, t));
+            return (p.x - (p1.x + t * (p2.x - p1.x))) * (p.x - (p1.x + t * (p2.x - p1.x))) +
+                   (p.y - (p1.y + t * (p2.y - p1.y))) * (p.y - (p1.y + t * (p2.y - p1.y)));
+        }
+
+        // Canvas Click Handler for Building / Selecting
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const mouseX = (e.clientX - rect.left) * scaleX;
+            const mouseY = (e.clientY - rect.top) * scaleY;
+
+            // Check if clicking existing tower
+            for (let t of towers) {
+                let dx = t.x - mouseX;
+                let dy = t.y - mouseY;
+                if (dx*dx + dy*dy < 22*22) {
+                    selectedTower = t;
+                    updateInspector();
+                    return;
                 }
             }
-        }
 
-        // 【动作C：让子弹飞向怪物并造成伤害】
-        for (let i = bullets.length - 1; i >= 0; i--) {
-            let b = bullets[i]; // 当前这颗子弹
-            let target = b.target; // 子弹锁定的目标怪物
-
-            // 如果目标怪物已经死了（被其他子弹打死了），子弹就消失
-            if (!enemies.includes(target)) {
-                b.element.remove();
-                bullets.splice(i, 1);
-                continue;
+            // Build new tower
+            let def = towerDefs[selectedTowerType];
+            if (gold < def.cost) {
+                showFloatingText("金幣不足！", mouseX, mouseY, "#f43f5e");
+                return;
             }
-
-            // 计算子弹和目标怪物之间的距离
-            const dx = target.x - b.x;
-            const dy = target.y - b.y;
-            const dist = Math.hypot(dx, dy);
-
-            if (dist < 5) {
-                // 如果距离小于 5，说明打中了！
-                target.hp -= b.damage; // 扣除怪物的血量
-
-                if (target.hp <= 0) {
-                    // 如果怪物血量归零，说明死啦！
-                    gold += 15; // 给玩家奖励 15 金币
-                    updateUI();
-                    target.element.remove(); // 删掉怪物
-                    enemies.splice(enemies.indexOf(target), 1);
+            if (isNearPath(mouseX, mouseY)) {
+                showFloatingText("不能建造在行軍路徑上！", mouseX, mouseY, "#f43f5e");
+                return;
+            }
+            for (let t of towers) {
+                let dx = t.x - mouseX;
+                let dy = t.y - mouseY;
+                if (dx*dx + dy*dy < 38*38) {
+                    showFloatingText("位置過於擁擠！", mouseX, mouseY, "#f43f5e");
+                    return;
                 }
-
-                // 子弹打完，自己也要消失
-                b.element.remove();
-                bullets.splice(i, 1);
-            } else {
-                // 如果没打中，就继续朝目标飞（按照方向移动坐标）
-                b.x += (dx / dist) * 10;
-                b.y += (dy / dist) * 10;
-                b.element.style.left = (b.x - 4) + 'px'; // -4 是为了让子弹中心对准
-                b.element.style.top = (b.y - 4) + 'px';
             }
-        }
 
-        // 告诉浏览器：我这一帧画完了，请在下一帧继续调用 gameLoop
-        // 这样画面才会连续动起来，也就是 60帧/秒
-        requestAnimationFrame(gameLoop);
-    }
+            gold -= def.cost;
+            towers.push({
+                x: mouseX,
+                y: mouseY,
+                type: selectedTowerType,
+                level: 1,
+                range: def.range,
+                damage: def.damage,
+                fireRate: def.fireRate,
+                cooldown: 0,
+                angle: 0,
+                target: null,
+                color: def.color
+            });
 
-    // ---------------- 5. 发射子弹的具体实现 ----------------
-    function createBullet(startX, startY, targetEnemy) {
-        // 在网页上创建一个子弹元素
-        const bulletEl = document.createElement('div');
-        bulletEl.className = 'bullet';
-        bulletEl.style.left = (startX - 4) + 'px'; // 从塔的中心出现
-        bulletEl.style.top = (startY - 4) + 'px';
-        board.appendChild(bulletEl); // 放到画布上
-
-        // 把子弹的数据存入数组，让上面的“动作C”去处理它
-        bullets.push({
-            x: startX,
-            y: startY,
-            damage: 15, // 每发子弹扣 15 滴血
-            target: targetEnemy,
-            element: bulletEl
+            updateUI();
+            updateInspector();
         });
-    }
 
-    // ---------------- 6. 启动游戏！ ----------------
-    // 调用一次 gameLoop，开启无限循环的引擎
-    gameLoop();
-</script>
+        function showFloatingText(text, x, y, color) {
+            particles.push({ x: x, y: y, text: text, color: color, life: 40, vy: -1.5 });
+        }
+
+        // Skibidi Toilet Enemy Class
+        class Enemy {
+            constructor(data) {
+                this.type = data.type;
+                this.hp = data.hp;
+                this.maxHp = data.maxHp;
+                this.speed = data.speed;
+                this.reward = data.reward;
+                this.scoreVal = data.scoreVal;
+                this.radius = data.radius;
+                this.color = data.color;
+                this.pathIndex = 0;
+                this.x = pathWaypoints[0].x;
+                this.y = pathWaypoints[0].y;
+                this.slowTimer = 0;
+            }
+
+            update() {
+                let currentSpeed = this.speed;
+                if (this.slowTimer > 0) {
+                    currentSpeed *= 0.5;
+                    this.slowTimer--;
+                }
+
+                let targetPoint = pathWaypoints[this.pathIndex + 1];
+                if (!targetPoint) return;
+
+                let dx = targetPoint.x - this.x;
+                let dy = targetPoint.y - this.y;
+                let dist = Math.hypot(dx, dy);
+
+                if (dist < currentSpeed) {
+                    this.x = targetPoint.x;
+                    this.y = targetPoint.y;
+                    this.pathIndex++;
+                    if (this.pathIndex >= pathWaypoints.length - 1) {
+                        lives--;
+                        updateUI();
+                        this.hp = 0;
+                        if (lives <= 0) triggerGameOver(false);
+                    }
+                } else {
+                    this.x += (dx / dist) * currentSpeed;
+                    this.y += (dy / dist) * currentSpeed;
+                }
+            }
+
+            draw() {
+                // Draw Skibidi Toilet Bowl
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#ffffff';
+                ctx.stroke();
+
+                // Draw Head / Face inside toilet
+                ctx.fillStyle = '#fca5a5';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y - 2, this.radius * 0.6, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Sunglasses / Skibidi Expression
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(this.x - 5, this.y - 5, 10, 4);
+
+                if (this.slowTimer > 0) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius + 4, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#a855f7';
+                    ctx.stroke();
+                }
+
+                // HP Bar
+                let barW = 26;
+                let barH = 4;
+                let ratio = Math.max(0, this.hp / this.maxHp);
+                ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                ctx.fillRect(this.x - barW/2, this.y - this.radius - 12, barW, barH);
+                ctx.fillStyle = this.hp > this.maxHp * 0.5 ? '#10b981' : '#f59e0b';
+                ctx.fillRect(this.x - barW/2, this.y - this.radius - 12, barW * ratio, barH);
+            }
+        }
+
+        // Bullet Class
+        class Bullet {
+            constructor(x, y, targetEnemy, damage, type) {
+                this.x = x;
+                this.y = y;
+                this.target = targetEnemy;
+                this.damage = damage;
+                this.type = type;
+                this.speed = 9;
+                this.active = true;
+            }
+
+            update() {
+                if (!this.target || this.target.hp <= 0) {
+                    this.active = false;
+                    return;
+                }
+                let dx = this.target.x - this.x;
+                let dy = this.target.y - this.y;
+                let dist = Math.hypot(dx, dy);
+
+                if (dist < this.speed) {
+                    this.target.hp -= this.damage;
+                    if (this.type === 'tvman') {
+                        this.target.slowTimer = 90; // 1.5s slow
+                    }
+                    if (this.target.hp <= 0) {
+                        gold += this.target.reward;
+                        score += this.target.scoreVal;
+                        updateUI();
+                    }
+                    this.active = false;
+                } else {
+                    this.x += (dx / dist) * this.speed;
+                    this.y += (dy / dist) * this.speed;
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.type === 'tvman' ? 5 : 3.5, 0, Math.PI * 2);
+                ctx.fillStyle = this.type === 'tvman' ? '#c084fc' : this.type === 'speakerman' ? '#f472b6' : '#22d3ee';
+                ctx.fill();
+            }
+        }
+
+        // Game Loop Update
+        function update() {
+            if (waveActive && spawnQueue.length > 0) {
+                spawnTimer++;
+                if (spawnTimer >= 35) {
+                    enemies.push(new Enemy(spawnQueue.shift()));
+                    spawnTimer = 0;
+                }
+            } else if (waveActive && spawnQueue.length === 0 && enemies.length === 0) {
+                waveActive = false;
+                currentWave++;
+                if (currentWave > maxWaves) {
+                    triggerGameOver(true);
+                } else {
+                    document.getElementById('start-wave-btn').disabled = false;
+                    document.getElementById('start-wave-btn').classList.remove('opacity-50', 'cursor-not-allowed');
+                    document.getElementById('wave-status-text').innerText = `Wave ${currentWave - 1} 完成！準備迎接下一波`;
+                    document.getElementById('wave-display').innerText = `Wave ${currentWave} / ${maxWaves}`;
+                }
+            }
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                enemies[i].update();
+                if (enemies[i].hp <= 0) enemies.splice(i, 1);
+            }
+
+            for (let tower of towers) {
+                if (tower.cooldown > 0) tower.cooldown--;
+
+                let closestEnemy = null;
+                let minDist = tower.range;
+                for (let enemy of enemies) {
+                    let dist = Math.hypot(enemy.x - tower.x, enemy.y - tower.y);
+                    if (dist <= minDist) {
+                        minDist = dist;
+                        closestEnemy = enemy;
+                    }
+                }
+
+                tower.target = closestEnemy;
+                if (tower.target) {
+                    tower.angle = Math.atan2(tower.target.y - tower.y, tower.target.x - tower.x);
+                    if (tower.cooldown === 0) {
+                        bullets.push(new Bullet(tower.x, tower.y, tower.target, tower.damage, tower.type));
+                        tower.cooldown = tower.fireRate;
+                    }
+                }
+            }
+
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                bullets[i].update();
+                if (!bullets[i].active) bullets.splice(i, 1);
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].y += particles[i].vy;
+                particles[i].life--;
+                if (particles[i].life <= 0) particles.splice(i, 1);
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Grid background
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+            ctx.lineWidth = 1;
+            for (let x = 0; x < canvas.width; x += 40) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += 40) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+            }
+
+            // Path
+            ctx.beginPath();
+            ctx.moveTo(pathWaypoints[0].x, pathWaypoints[0].y);
+            for (let i = 1; i < pathWaypoints.length; i++) {
+                ctx.lineTo(pathWaypoints[i].x, pathWaypoints[i].y);
+            }
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 38;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 8;
+            ctx.stroke();
+
+            // HQ Base Icon
+            let lastP = pathWaypoints[pathWaypoints.length - 1];
+            ctx.fillStyle = '#ec4899';
+            ctx.beginPath();
+            ctx.arc(lastP.x, lastP.y, 22, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 11px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText("總部", lastP.x, lastP.y);
+
+            // Towers (Circular base with rotating camera/speaker barrel)
+            for (let t of towers) {
+                if (selectedTower === t) {
+                    ctx.beginPath();
+                    ctx.arc(t.x, t.y, t.range, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(6, 182, 212, 0.08)';
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
+
+                // Rotating Barrel / Camera Lens
+                ctx.save();
+                ctx.translate(t.x, t.y);
+                ctx.rotate(t.angle);
+                ctx.fillStyle = '#64748b';
+                ctx.fillRect(0, -6, 26, 12);
+                ctx.restore();
+
+                // Circular Base
+                ctx.beginPath();
+                ctx.arc(t.x, t.y, 18, 0, Math.PI * 2);
+                ctx.fillStyle = '#1e293b';
+                ctx.fill();
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = t.color;
+                ctx.stroke();
+
+                // Inner core
+                ctx.beginPath();
+                ctx.arc(t.x, t.y, 7, 0, Math.PI * 2);
+                ctx.fillStyle = t.color;
+                ctx.fill();
+
+                if (t.level > 1) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 10px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(`L${t.level}`, t.x, t.y - 22);
+                }
+            }
+
+            for (let e of enemies) e.draw();
+            for (let b of bullets) b.draw();
+
+            for (let p of particles) {
+                ctx.save();
+                ctx.globalAlpha = p.life / 40;
+                ctx.fillStyle = p.color;
+                ctx.font = 'bold 12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(p.text, p.x, p.y);
+                ctx.restore();
+            }
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updateUI() {
+            document.getElementById('gold-display').innerText = `$${gold}`;
+            document.getElementById('lives-display').innerText = `❤️ ${lives}`;
+            document.getElementById('score-display').innerText = score;
+        }
+
+        function updateInspector() {
+            const container = document.getElementById('inspector-content');
+            if (!selectedTower) {
+                container.innerHTML = `<p class="text-slate-400 italic">尚未選取任何防禦塔。點擊地圖上的防禦塔查看升級與售賣。</p>`;
+                return;
+            }
+
+            let def = towerDefs[selectedTower.type];
+            let upgradeCost = Math.round(def.cost * 0.8 * selectedTower.level);
+            let refundValue = Math.round(def.cost * 0.6 * selectedTower.level);
+
+            container.innerHTML = `
+                <div class="flex justify-between items-center font-bold text-slate-200">
+                    <span>${def.name} (Lv.${selectedTower.level})</span>
+                    <span class="text-cyan-400">傷害: ${selectedTower.damage}</span>
+                </div>
+                <div class="text-slate-400">射程: ${selectedTower.range} | 攻速: ${selectedTower.fireRate}f</div>
+                <div class="flex gap-2 mt-2">
+                    <button onclick="upgradeSelectedTower()" class="flex-1 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow transition">
+                        升級 ($${upgradeCost})
+                    </button>
+                    <button onclick="sellSelectedTower()" class="py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow transition">
+                        出售 (+$${refundValue})
+                    </button>
+                </div>
+            `;
+        }
+
+        function upgradeSelectedTower() {
+            if (!selectedTower) return;
+            let def = towerDefs[selectedTower.type];
+            let cost = Math.round(def.cost * 0.8 * selectedTower.level);
+            if (gold < cost) {
+                showFloatingText("金幣不足升級！", selectedTower.x, selectedTower.y, "#f43f5e");
+                return;
+            }
+
+            gold -= cost;
+            selectedTower.level++;
+            selectedTower.damage = Math.round(selectedTower.damage * 1.35);
+            selectedTower.range += 12;
+            updateUI();
+            updateInspector();
+        }
+
+        function sellSelectedTower() {
+            if (!selectedTower) return;
+            let def = towerDefs[selectedTower.type];
+            let refund = Math.round(def.cost * 0.6 * selectedTower.level);
+            gold += refund;
+
+            let idx = towers.indexOf(selectedTower);
+            if (idx > -1) towers.splice(idx, 1);
+
+            selectedTower = null;
+            updateUI();
+            updateInspector();
+        }
+
+        function triggerGameOver(isVictory) {
+            const overlay = document.getElementById('modal-overlay');
+            const icon = document.getElementById('modal-icon');
+            const title = document.getElementById('modal-title');
+            const desc = document.getElementById('modal-desc');
+
+            if (isVictory) {
+                icon.innerText = "🏆";
+                title.innerText = "勝利！成功消滅馬桶軍團";
+                desc.innerText = "你率領監控人與音響人聯盟成功抵禦所有 10 波 Skibidi 攻擊！";
+            } else {
+                icon.innerText = "💀";
+                title.innerText = "防線崩潰";
+                desc.innerText = "馬桶人突破了總部防線！";
+            }
+
+            document.getElementById('end-score').innerText = score;
+            document.getElementById('end-lives').innerText = lives;
+
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+        }
+
+        function restartGame() {
+            gold = 500;
+            lives = 20;
+            score = 0;
+            currentWave = 1;
+            waveActive = false;
+            towers = [];
+            enemies = [];
+            bullets = [];
+            particles = [];
+            spawnQueue = [];
+            selectedTower = null;
+
+            document.getElementById('modal-overlay').classList.add('hidden');
+            document.getElementById('modal-overlay').classList.remove('flex');
+            document.getElementById('wave-status-text').innerText = "Skibidi 馬桶大軍即將襲來，請部署防禦塔！";
+            document.getElementById('wave-display').innerText = `Wave 1 / ${maxWaves}`;
+
+            updateUI();
+            updateInspector();
+        }
+
+        window.onload = function() {
+            updateUI();
+            gameLoop();
+        };
+    </script>
 </body>
 </html>
