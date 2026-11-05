@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>网页版塔防教学 - 从零开始</title>
+
+<!-- 
+=========================================
+【教学第一步：写 CSS 样式（装修）】
+下面这一大段 <style> 是干嘛的？
+它是用来给我们的游戏“化妆”的。如果不写，所有的东西都会干巴巴地挤在一起。
+我们在这里规定了：
+1. 背景要是深色的。
+2. 敌人的长宽、圆角、颜色。
+3. 防御塔的外观。
+=========================================
+-->
+<style>
+    body {
+        background-color: #1e1e24; /* 网页背景颜色，深灰色，保护眼睛 */
+        color: white;              /* 文字颜色，白色 */
+        font-family: sans-serif;   /* 字体 */
+        display: flex;             /* 用弹性盒子让内容居中 */
+        flex-direction: column;    /* 从上往下排列 */
+        align-items: center;
+        margin: 0;
+        padding: 20px;
+    }
+
+    /* 顶部信息栏：显示金币和血量 */
+    #ui {
+        display: flex;
+        gap: 30px;
+        font-size: 20px;
+        margin-bottom: 10px;
+        font-weight: bold;
+    }
+    .gold-text { color: #ffd700; } /* 金币的黄色 */
+    .hp-text { color: #ff3b30; }   /* 血量的红色 */
+
+    /* 游戏主画布：怪物和塔都在这里面跑 */
+    #game-board {
+        position: relative;        /* 相对定位，方便里面的怪物用绝对定位按坐标摆放 */
+        width: 800px;
+        height: 400px;
+        background-color: #2a2a35; /* 画布颜色 */
+        border: 2px solid #555;
+        border-radius: 8px;
+        overflow: hidden;          /* 超出画布的部分隐藏 */
+        cursor: crosshair;         /* 鼠标放上去变成十字准星，暗示你可以点击建塔 */
+    }
+
+    /* 怪物走的路线（一条灰色的路） */
+    .path {
+        position: absolute;
+        top: 180px;                /* 距离顶部 180 像素 */
+        left: 0;
+        width: 100%;
+        height: 40px;
+        background-color: #444;
+        border-top: 2px solid #333;
+        border-bottom: 2px solid #333;
+    }
+
+    /* 怪物的外观（红色小圆球） */
+    .enemy {
+        position: absolute;        /* 绝对定位，靠 left 和 top 决定位置 */
+        width: 30px;
+        height: 30px;
+        background-color: red;
+        border-radius: 50%;        /* 变成圆形 */
+        text-align: center;
+        line-height: 30px;
+        font-size: 14px;
+        transform: translateY(5px);/* 微调位置，让它站在路中间 */
+    }
+
+    /* 防御塔的外观（蓝色方块） */
+    .tower {
+        position: absolute;
+        width: 40px;
+        height: 40px;
+        background-color: #00c6ff;
+        border-radius: 8px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 20px;
+        border: 2px solid #fff;
+    }
+
+    /* 子弹的外观（黄色小圆点） */
+    .bullet {
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        background-color: yellow;
+        border-radius: 50%;
+    }
+</style>
+</head>
+<body>
+
+<!-- 
+=========================================
+【教学第二步：写 HTML 骨架（搭模型）】
+下面这里是我们网页上能看见的实物。
+1. 顶部的文字（金币、血量）。
+2. 那个灰黑色的框（游戏画布），里面画了一条路。
+=========================================
+-->
+<div id="ui">
+    <div>金币: <span class="gold-text" id="gold-text">100</span></div>
+    <div>基地血量: <span class="hp-text" id="hp-text">100</span></div>
+</div>
+
+<div id="game-board">
+    <div class="path"></div>
+</div>
+
+<p style="color:#aaa; margin-top:15px;">👉 用手指或鼠标点击上半部分空地，就可以建塔打怪啦！</p >
+
+<!-- 
+=========================================
+【教学第三步：写 JavaScript 逻辑（注入灵魂）】
+前面两步只是画了好看的图，现在我们要用代码让游戏动起来。
+包括：怎么建塔？怪物怎么走路？塔怎么开枪？子弹怎么追怪？
+=========================================
+-->
+<script>
+    // ---------------- 1. 定义全局变量 ----------------
+    // 把游戏里的数据存起来，随时可以拿来用
+    let gold = 100;      // 初始金币
+    let baseHp = 100;    // 初始基地血量
+    let towers = [];     // 这是一个“数组”，用来装游戏里所有的塔
+    let enemies = [];    // 用来装所有的怪物
+    let bullets = [];    // 用来装所有的子弹
+
+    // 获取网页上显示文字的元素，方便后面更新数字
+    const board = document.getElementById('game-board');
+    const goldText = document.getElementById('gold-text');
+    const hpText = document.getElementById('hp-text');
+
+    // 自定义一个函数，用来刷新顶部的数字显示
+    function updateUI() {
+        goldText.innerText = gold;
+        hpText.innerText = baseHp;
+    }
+
+    // ---------------- 2. 建塔功能 ----------------
+    // 监听玩家在画布上的点击动作
+    board.addEventListener('click', (e) => {
+        // 获取玩家点击的坐标位置（相对于画布内部）
+        const rect = board.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const clickY = e.clientY - rect.top;
+
+        // 判断：如果有 50 块钱，并且没有建在怪物走的路上（避开 y=150到250 的区域）
+        if (gold >= 50 && (clickY < 150 || clickY > 250)) {
+            gold -= 50; // 扣除金币
+            updateUI(); // 刷新顶部数字
+
+            // 创建一个网页元素代表塔（就是一个 div）
+            const towerEl = document.createElement('div');
+            towerEl.className = 'tower'; // 套用 CSS 里的外观
+            towerEl.style.left = (clickX - 20) + 'px'; // 让塔的中心在点击位置
+            towerEl.style.top = (clickY - 20) + 'px';
+            towerEl.innerText = '🏹'; // 塔的图标
+            board.appendChild(towerEl); // 把塔加到画布上
+
+            // 把这个塔的“属性”存到数组里，方便后面电脑自动算伤害
+            towers.push({
+                x: clickX,
+                y: clickY,
+                range: 120,      // 射程（半径120像素内的怪都能打）
+                attackSpeed: 30, // 攻击间隔（大约半秒开一枪）
+                cooldown: 0      // 当前还剩几秒开下一枪
+            });
+        }
+    });
+
+    // ---------------- 3. 怪物生成功能 ----------------
+    // 这个函数专门用来生成一只怪物
+    function spawnEnemy() {
+        // 怪物的初始数据
+        const enemyData = {
+            x: -30,       // 出生在屏幕最左侧外面
+            y: 195,       // 固定在路上的高度
+            hp: 50,       // 血量 50
+            speed: 2,     // 移动速度（每次移动 2 像素）
+            element: null // 一会用来装真实的网页元素
+        };
+
+        // 创建怪物网页元素
+        const enemyEl = document.createElement('div');
+        enemyEl.className = 'enemy';
+        enemyEl.innerText = '👾'; // 怪物图标
+        board.appendChild(enemyEl); // 加到画布上
+        enemyData.element = enemyEl; // 把元素存到数据里
+
+        // 把这只怪物装进全局怪物数组
+        enemies.push(enemyData);
+    }
+
+    // 设置定时器：每隔 1.5 秒（1500毫秒），就自动执行一次 spawnEnemy，生成一只怪
+    setInterval(spawnEnemy, 1500);
+
+    // ---------------- 4. 游戏主循环（最核心的动力） ----------------
+    // 这个函数会一秒钟执行 60 次。它负责让画面里的人动起来。
+    function gameLoop() {
+
+        // 【动作A：让怪物走起来】
+        // 倒序遍历怪物数组（为什么不正序？因为删除怪物时不会出错）
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            let e = enemies[i];
+            e.x += e.speed; // 横坐标增加（往右走）
+            e.element.style.left = e.x + 'px'; // 把最新的坐标给网页元素
+
+            // 如果怪物走出了屏幕右边（到达终点）
+            if (e.x > 800) {
+                baseHp -= 10; // 基地扣血
+                updateUI();   // 刷新数字
+                e.element.remove(); // 从画面上删掉这只怪
+                enemies.splice(i, 1); // 从数组里删除这只怪
+            }
+        }
+
+        // 【动作B：让塔自动寻找敌人开火】
+        for (let t of towers) { // 遍历所有的塔
+            if (t.cooldown > 0) {
+                t.cooldown--; // 如果在冷却，就减少冷却时间，不能开火
+                continue;
+            }
+
+            // 遍历所有怪物，看看哪个在射程内
+            for (let e of enemies) {
+                // 用勾股定理算距离：两点之间的距离
+                const dist = Math.hypot(e.x - t.x, e.y - t.y);
+                
+                if (dist <= t.range) { // 如果怪物进入了射程
+                    createBullet(t.x, t.y, e); // 发射一颗子弹，目标锁定这只怪
+                    t.cooldown = t.attackSpeed; // 射完进入冷却
+                    break; // 一次只能打一只，打完就跳出这个循环
+                }
+            }
+        }
+
+        // 【动作C：让子弹飞向怪物并造成伤害】
+        for (let i = bullets.length - 1; i >= 0; i--) {
+            let b = bullets[i]; // 当前这颗子弹
+            let target = b.target; // 子弹锁定的目标怪物
+
+            // 如果目标怪物已经死了（被其他子弹打死了），子弹就消失
+            if (!enemies.includes(target)) {
+                b.element.remove();
+                bullets.splice(i, 1);
+                continue;
+            }
+
+            // 计算子弹和目标怪物之间的距离
+            const dx = target.x - b.x;
+            const dy = target.y - b.y;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist < 5) {
+                // 如果距离小于 5，说明打中了！
+                target.hp -= b.damage; // 扣除怪物的血量
+
+                if (target.hp <= 0) {
+                    // 如果怪物血量归零，说明死啦！
+                    gold += 15; // 给玩家奖励 15 金币
+                    updateUI();
+                    target.element.remove(); // 删掉怪物
+                    enemies.splice(enemies.indexOf(target), 1);
+                }
+
+                // 子弹打完，自己也要消失
+                b.element.remove();
+                bullets.splice(i, 1);
+            } else {
+                // 如果没打中，就继续朝目标飞（按照方向移动坐标）
+                b.x += (dx / dist) * 10;
+                b.y += (dy / dist) * 10;
+                b.element.style.left = (b.x - 4) + 'px'; // -4 是为了让子弹中心对准
+                b.element.style.top = (b.y - 4) + 'px';
+            }
+        }
+
+        // 告诉浏览器：我这一帧画完了，请在下一帧继续调用 gameLoop
+        // 这样画面才会连续动起来，也就是 60帧/秒
+        requestAnimationFrame(gameLoop);
+    }
+
+    // ---------------- 5. 发射子弹的具体实现 ----------------
+    function createBullet(startX, startY, targetEnemy) {
+        // 在网页上创建一个子弹元素
+        const bulletEl = document.createElement('div');
+        bulletEl.className = 'bullet';
+        bulletEl.style.left = (startX - 4) + 'px'; // 从塔的中心出现
+        bulletEl.style.top = (startY - 4) + 'px';
+        board.appendChild(bulletEl); // 放到画布上
+
+        // 把子弹的数据存入数组，让上面的“动作C”去处理它
+        bullets.push({
+            x: startX,
+            y: startY,
+            damage: 15, // 每发子弹扣 15 滴血
+            target: targetEnemy,
+            element: bulletEl
+        });
+    }
+
+    // ---------------- 6. 启动游戏！ ----------------
+    // 调用一次 gameLoop，开启无限循环的引擎
+    gameLoop();
+</script>
+</body>
+</html>
